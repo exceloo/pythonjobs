@@ -35,17 +35,22 @@ def getDrSchedule(drKey=None, deptName=None, registerType="tkXLN7TbvFA="):
         return None;
 
 def dealDrScheduleInfo(infoJson=None):
-    hasSchedule = {};
+    scheduleList = [];
     if infoJson is None:
         return None;
     if ("Body" in infoJson) is False:
         return None;
+    if(infoJson["Body"] is None):
+        return None;
     if ("TimeInfo" in infoJson["Body"]) is False:
         return None;
+    dayList = ["周一","周二","周三","周四","周五","周六","周日"];
     for index in range(len(infoJson["Body"]["TimeInfo"])):
         if ("ResourceNumber" in infoJson["Body"]["TimeInfo"][index]):
-            ResourceNumber = int(infoJson["Body"]["TimeInfo"][index]["ResourceNumber"]);
+            currentTimeItem = infoJson["Body"]["TimeInfo"][index];
+            ResourceNumber = int(currentTimeItem["ResourceNumber"]);
             if ResourceNumber > 0:
+                hasSchedule = {};
                 #医生姓名 Target=陶蓓
                 if "Target" in infoJson["Body"]:
                     hasSchedule["DoctorName"] = infoJson["Body"]["Target"];
@@ -56,23 +61,34 @@ def dealDrScheduleInfo(infoJson=None):
                 if "Grade" in infoJson["Body"]:
                     hasSchedule["DoctorLevelName"] = infoJson["Body"]["Grade"];
                 #可预约日期 Target2=2020-04-09
-                hasSchedule["Groups"] = infoJson["Body"]["TimeInfo"][index]["Target2"];
+                hasSchedule["Groups"] = currentTimeItem["Target2"];
+                hasSchedule["GroupsNum"] = int(time.mktime(time.strptime(currentTimeItem["Target2"], '%Y-%m-%d')))
+                #科预约周几 Target1=周二
+                if currentTimeItem["Target1"] in dayList:
+                    hasSchedule["Day"] = currentTimeItem["Target1"];
+                    hasSchedule["DayNum"] = len(dayList) - dayList.index(currentTimeItem["Target1"]);
                 #可预约时间 Target3=08:00-08:59
-                hasSchedule["StartTime"] = infoJson["Body"]["TimeInfo"][index]["Target3"];
+                hasSchedule["StartTime"] = currentTimeItem["Target3"];
+                #获取开始时间
+                hasSchedule["StartNum"] = 24 - int(currentTimeItem["Target3"][0:2]);
                 #剩余可约号数 ResourceNumber=0
-                hasSchedule["AvailableBook"] = infoJson["Body"]["TimeInfo"][index]["ResourceNumber"];
+                hasSchedule["AvailableBook"] = currentTimeItem["ResourceNumber"];
                 #挂号价格 Fee=50.00
-                hasSchedule["Price"] = infoJson["Body"]["TimeInfo"][index]["Fee"];
-                return hasSchedule
+                hasSchedule["Price"] = currentTimeItem["Fee"];
+                hasSchedule["PriceNum"] = int(currentTimeItem["Fee"][:-3]);
+                scheduleList.insert(0, hasSchedule);
+    if len(scheduleList) > 0:
+        return scheduleList
     return None;
 
 def startMe(drKey=None, deptName=None):
     drSchedule = getDrSchedule(drKey, deptName);
-    drAvailable = dealDrScheduleInfo(drSchedule);
-    print(drAvailable)
+    drAvailableList = dealDrScheduleInfo(drSchedule);
     availableText = None;
-    if drAvailable is not None:
+    if drAvailableList is not None:
+        drAvailable = drAvailableList[0];
         availableText = drAvailable["Groups"] + ", ";
+        availableText += drAvailable["Day"] + ", ";
         availableText += "瑞金医院, ";
         availableText += drAvailable["DeptName"] + ", ";
         availableText += drAvailable["DoctorName"];
@@ -82,6 +98,43 @@ def startMe(drKey=None, deptName=None):
         availableText += "剩余" + drAvailable["AvailableBook"] + "位, ";
         availableText += "挂号费" + drAvailable["Price"] + "元";
     print(availableText);
+    return availableText;
+
+def startMeList(drList = None):
+    availableText = None;
+    if drList is None:
+        return None;
+    if len(drList) < 1:
+        return None;
+    
+    drTotalList = [];
+    #累加所有可选医生的排版
+    for index in range(len(drList)):
+        drSchedule = getDrSchedule(drList[index]["key"], drList[index]["deptName"]);
+        drAvailableList = dealDrScheduleInfo(drSchedule);
+        if (drAvailableList is not None) and (len(drAvailableList) > 0):
+            drTotalList += drAvailableList;
+
+    if(len(drTotalList)<1):
+        return None;
+    #重新排序 排序优先级： 低价，晚些时间，周末，早些日期
+    newLlist = sorted(drTotalList, key=lambda ele:(ele["PriceNum"], ele["StartNum"], ele["DayNum"], ele["GroupsNum"]));
+
+    #文字输出
+    availableText = "瑞金医院" + "\r\n\r\n";
+    for index in range(len(newLlist)):
+        currentDr = newLlist[index];
+        availableText += currentDr["Groups"] + ", ";
+        availableText += currentDr["Day"] + ", ";
+        availableText += currentDr["DeptName"] + ", ";
+        availableText += currentDr["DoctorName"];
+        availableText += "(" + currentDr["DoctorLevelName"] + "), ";
+        availableText += "可预约: ";
+        availableText += currentDr["StartTime"] + ", ";
+        availableText += "剩余" + currentDr["AvailableBook"] + "位, ";
+        availableText += "挂号费" + currentDr["Price"] + "元";
+        availableText += "\r\n\r\n";
+
     return availableText;
 
 def newThread(drKey=None, deptName=None):
